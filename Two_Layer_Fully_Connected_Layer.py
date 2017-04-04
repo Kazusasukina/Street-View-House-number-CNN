@@ -19,8 +19,7 @@ class FC_Network:
 
     #----------------------------------------------------------------------
     def __init__(self, num_hidden, \
-                 batch_size,image_size,num_channel,num_labels, \
-                 train_sample,train_label,test_sample,test_label):
+                 batch_size,image_size,num_channel,num_labels):
         """
         @num_hidden : 隐藏层数
         
@@ -28,29 +27,25 @@ class FC_Network:
         @image_size : 图片大小
         @num_channel: 通道数(一张图片默认有 R+G+B 三通道哈)
         @num_label  : 标签多少(一张图片的标签有0~9共10个标签)
-        
-        @train_sample : 训练数据
-        @train_label  : 训练标签
-        @test_sample  : 验证数据
-        @test_label   : 验证标签
         """
         # 1. 和TF的图有关
         self.graph = tf.Graph()
         self.num_hidden = num_hidden
-        
+
         # 2. 训练数据有关
         self.batch_size = batch_size
         self.image_size = image_size
         self.num_channel = num_channel
         self.num_labels = num_labels
-       
-        #self.tf_train_samples = None
-        #self.tf_train_labels = None
-        #self.tf_test_samples = None
-        #self.tf_test_labels = None
-        
+
+        # 3. 构建网络
+        self.__graphConstruction()
+        self.session = tf.InteractiveSession(graph=self.graph)
+        self.writer = tf.summary.FileWriter('./board',self.graph)
+        # self.merged = None
+
     #----------------------------------------------------------------------
-    def graphConstruction(self):
+    def __graphConstruction(self):
         """
         定义计算图谱
         """
@@ -71,18 +66,16 @@ class FC_Network:
                 2. num_label             # 标签one-hot-vector
             -----------------------------------------------------------------
             """
-            
-            self.tf_train_samples = tf.placeholder(tf.float32,shape=[self.batch_size, 
-                                                                     self.image_size, 
-                                                                     self.image_size,
-                                                                     self.num_channel]
-                                                   )
-            self.tf_test_samples = tf.placeholder(tf.float32,shape=[self.batch_size,\
-                                                                     self.image_size,\
-                                                                     self.image_size,\
-                                                                     self.num_channel]\
-                                                   )
-            self.tf_train_labels = tf.placeholder(tf.float32,shape=[self.batch_size, self.num_labels])
+            with tf.name_scope('inputs'):
+                self.tf_train_samples = tf.placeholder(tf.float32,shape=[self.batch_size, 
+                                                                        self.image_size, 
+                                                                        self.image_size,
+                                                                        self.num_channel], 
+                                                                        name="TrainSamples"
+                                                    )
+                self.tf_train_labels = tf.placeholder(tf.float32,
+                                                    shape=[self.batch_size, self.num_labels],
+                                                    name="TrainLabels")
             
             """
             定义全连接的Fully Connected NN
@@ -103,35 +96,39 @@ class FC_Network:
             Bias Shape 形状: [num_label] # 输出是一个One-Hot Vector 代表的是 0~9 中的数字几
             -----------------------------------------------------------------
             """
-            self.fc1_weights = tf.Variable(tf.truncated_normal([self.image_size*self.image_size*self.num_channel,
-                                                           self.num_hidden],stddev=0.1)
-                                      )
-            self.fc1_bias    = tf.Variable(tf.constant(0.1,shape=[self.num_hidden]))
+            with tf.name_scope('fc1'):
+                self.fc1_weights = tf.Variable(tf.truncated_normal([self.image_size*self.image_size*self.num_channel,
+                                                            self.num_hidden],stddev=0.1), name='hidden_layer_weights'
+                                        )
+                self.fc1_bias    = tf.Variable(tf.constant(0.1,shape=[self.num_hidden]), name = 'hidden_layer_bias')
             
-            self.fc2_weights = tf.Variable(tf.truncated_normal([self.num_hidden,self.num_labels],stddev=0.1))
-            self.fc2_bias    = tf.Variable(tf.constant(0.1,shape=[self.num_labels]))
+            with tf.name_scope('fc2'):
+                self.fc2_weights = tf.Variable(tf.truncated_normal([self.num_hidden,self.num_labels],stddev=0.1),name='output_layer_weights')
+                self.fc2_bias    = tf.Variable(tf.constant(0.1,shape=[self.num_labels]),name='output_layer_bias')
             
             """
             计算全连接层
             """
             # 习惯把最后一个全连接的输出称为 logits
-            self.logits = self.__model(self.tf_train_samples, 
-                                       self.fc1_weights,self.fc1_bias,self.fc2_weights,self.fc2_bias)
+            # self.logits = self.__model(self.tf_train_samples, 
+            #                            self.fc1_weights,self.fc1_bias,self.fc2_weights,self.fc2_bias)
+            self.logits = self.__model(self.tf_train_samples)
 
             # 定义loss function 为 cross entropy 最小
             # 这里 真实 的数据分布为 self.tf_train_labels
             #     预测 的数据分布为 logits 即output-layer的输出
-            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.logits,
-                                                                               labels=self.tf_train_labels))
-            #self.loss = -tf.reduce_mean(self.logits*tf.log(self.tf_train_labels),reduction_indices=[1])
+            with tf.name_scope('loss'):
+                self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.logits,
+                                                                               labels=self.tf_train_labels),name='cross_entropy_softmax')
+                # self.loss = -tf.reduce_mean(tf.nn.softmax(self.logits*tf.log(self.tf_train_labels)))
 
             # 优化方式为 loss function 最小
-            self.optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(self.loss)
+            with tf.name_scope('optimizer'):
+                self.optimizer = tf.train.GradientDescentOptimizer(0.001,name="GradientDescent").minimize(self.loss,name='minimize_loss_function')
             
             # 最后接上softMax判断当前输出 
             self.train_prediction = tf.nn.softmax(self.logits)
-            
-    
+
     #----------------------------------------------------------------------
     def run(self, samples_datasets='',labels_datasets='',chunk_size=100):
         """
@@ -141,21 +138,19 @@ class FC_Network:
         @samples_datasets    -> Samples Datasets : 需指定 sample 数据集
         @labels_datasets     -> Labels Datasets  : 需指定 label 数据集
         """
-        #self.session = tf.Session(graph=self.graph)
-        self.session = tf.InteractiveSession(graph=self.graph)
-        #with self.session as session: # 这样会在后面还需要出现Attempted to use a closed Session.问题
+        self.session = tf.Session(graph=self.graph)
         init = tf.global_variables_initializer()
         self.session.run(init)
-        
+
         print('Start Training Process...')
-        for i, sample, label in get_chunk_iterator(samples_datasets, labels_datasets, chunk_size=self.batch_size):
+        for i, samples, labels in get_chunk_iterator(samples_datasets, labels_datasets, chunk_size=self.batch_size):
             _, currentLoss, predictions = self.session.run([self.optimizer, self.loss, self.train_prediction],
-                                                      feed_dict={self.tf_train_samples : sample,
-                                                                 self.tf_train_labels  : label}
+                                                      feed_dict={self.tf_train_samples : samples,
+                                                                 self.tf_train_labels  : labels}
                                                       )
-            if i%100 == 0:
+            if i%10 == 0:
                 print('current loss: ', currentLoss, 
-                      '\tcurrent prediction: ', self.__accuracy(predictions, label), '%')
+                      '\tcurrent prediction: ', self.__accuracy(predictions, labels), '%')
 
     #----------------------------------------------------------------------
     def test_accuracy(self, samples_datasets='',labels_datasets='',chunk_size=100):
@@ -164,48 +159,46 @@ class FC_Network:
         """
         sampleData = samples_datasets
         labelDatasets = labels_datasets
-        
-        self.tf_test_labels = tf.placeholder(tf.float32,shape=[self.batch_size, self.num_labels])
+         
+        # 新建两个PlaceHolder分别保存 测试集的真实sample 和 标签信息
+        self.tf_test_samples = tf.placeholder(tf.float32, shape=[self.batch_size, 
+                                                                  self.image_size, self.image_size,
+                                                                  self.num_channel],name="TestSamples")
+        self.tf_test_labels = tf.placeholder(tf.float32,shape=[self.batch_size, self.num_labels], name="TestLabels")
 
-        self.test_prediction = tf.nn.softmax(self.__model(self.tf_test_samples,
-                                                          self.fc1_weights,
-                                                          self.fc1_bias,
-                                                          self.fc2_weights,
-                                                          self.fc2_bias
-                                                          )
-                                             )
+        # 利用自己的模型，对测试数据进行分类，之后采用Softmax搞清楚每一个测试样本所属的类别
+        self.test_prediction = tf.nn.softmax(self.__model(self.tf_test_samples))
 
         accuracies = []
         for i, samples, labels in get_chunk_iterator(sampleData,labelDatasets):
-            result = self.test_prediction.eval(session=self.session, feed_dict={self.tf_test_samples:samples})
-            accuracy = self.__accuracy(result, labels)
+            predict_results = self.test_prediction.eval(session=self.session, feed_dict={self.tf_test_samples:samples})
+            accuracy = self.__accuracy(predict_results, labels)
             accuracies.append(accuracy)
-            print('Test Accuracy: ',accuracy)
+            # print('Test Accuracy: ',accuracy)
         print('Average Accuracy: ', np.average(accuracies))
 
     #----------------------------------------------------------------------
-    def __model(self,train_samples, fc1_w, fc1_b, fc2_w, fc2_b):
+    def __model(self, train_samples):
         """
         定义模型
         @train_samples: 输入图像
-        @fc1_w        : 隐藏层的权重
-        @fc1_b        : 隐藏层的bias
-        @fc2_w        : 输出层的权重
-        @fc2_b        : 输出层的bias
         """
-        shape = train_samples.get_shape().as_list()
-        reshape = tf.reshape(train_samples, [shape[0],shape[1]*shape[2]*shape[3]])
-        hidden_layer = tf.nn.relu(tf.matmul(reshape, fc1_w) + fc1_b)
+        shape = train_samples.get_shape().as_list() # 扁平化
+        reshape = tf.reshape(train_samples,shape=[shape[0],shape[1]*shape[2]*shape[3]])
+
+        with tf.name_scope('hidden_layer'):
+            hidden_layer = tf.nn.relu(tf.matmul(reshape,self.fc1_weights)+self.fc1_bias)# 隐藏层就直接是一个RELU函数作为激活函数
         """
         output_layer = tf.nn.relu(tf.matmul(hidden_layer, fc2_w) + fc2_b)
         注意: 输出层不加relu激活函数的原因是因为激活函数relu其实会选特征，
              这些对特征的“选择”有可能会导致结果的不准确性
              所以在输出层就直接将结果相加，而不能利用激活函数进行过滤
         """
-        output_layer = tf.matmul(hidden_layer, fc2_w) + fc2_b
+        with tf.name_scope('output_layer'):
+            output_layer = tf.matmul(hidden_layer,self.fc2_weights)+self.fc2_bias
         
         return output_layer
-    
+
     #----------------------------------------------------------------------
     def __accuracy(self, prediction, labels, ):
         """
@@ -225,18 +218,18 @@ if __name__ == "__main__":
     test_path  = 'SVHN_datas/test_32x32.mat'
     train_sample, train_label, test_sample, test_label = LD.loadDatasets(train_path,test_path)
 
-    # 2. 初始化网络 ---> 这里设置隐藏层中的神经元个数为128个
+    # 2. 初始化网络 + 构建网络 ---> 这里设置隐藏层中的神经元个数为128个
     num_hidden = 128
     batch_size = 100
-    FC = FC_Network(num_hidden, batch_size, imageSize, num_channel, num_labels,\
-                    train_sample, train_label, test_sample, test_label)
+    FC = FC_Network(num_hidden, batch_size, imageSize, num_channel, num_labels)
 
     # 3. 构建网络
-    FC.graphConstruction()
+    # FC.graphConstruction()
 
     # 4. RUN Model
     FC.run(samples_datasets=train_sample,labels_datasets=train_label)
-    
+
+    # 5. Test Model
     FC.test_accuracy(samples_datasets=test_sample,labels_datasets=test_label)
-    
+
     print('down!', 'Total Time is: ', time.time()-start)

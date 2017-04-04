@@ -30,3 +30,20 @@ def get_chunk_iterator(sampleData, labelDatasets, chunk_size=100):
             yield i, sampleData[stepStart:stepEnd], labelDatasets[stepStart:stepEnd]
             i += 1
         stepStart = stepEnd
+
+#----------------------------------------------------------------------
+def variable_sumaries(var):
+    """
+    用于存储变量，放入TensorBoard中
+    来源: https://www.tensorflow.org/get_started/summaries_and_tensorboard
+    @var : 输入的Tensor
+    """
+    with tf.name_scope('summaries'):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var-mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max',tf.reduce_max(var))
+        tf.summary.scalar('min',tf.reduce_min(var))
+        tf.summary.histogram('histogram',var)
